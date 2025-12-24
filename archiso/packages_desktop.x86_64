@@ -50,7 +50,7 @@ exfatprogs
 f2fs-tools
 fakeroot
 fatresize
-firefox
+helium-browser-bin
 gpart
 gparted
 gptfdisk
@@ -179,7 +179,7 @@ udftools
 usb_modeswitch
 usbmuxd
 usbutils
-vim
+vscodium
 virtualbox-guest-utils
 vpnc
 vulkan-virtio
@@ -211,3 +211,10 @@ xorg-xrandr
 xorg-xrdb
 yad
 zfs-utils
+mise
+lolcat
+figlet
+podman
+crun
+podman-desktop
+gemini-cli
