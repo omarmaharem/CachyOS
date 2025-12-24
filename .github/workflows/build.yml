@@ -21,192 +21,49 @@ jobs:
           sudo rm -rf /usr/local/share/boost
           sudo rm -rf /usr/lib/jvm
           sudo apt-get clean
-          df -h
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Cache Docker layers
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-
-      - name: Cache Pacman packages
-        uses: actions/cache@v4
-        with:
-          path: ./pacman-cache
-          key: ${{ runner.os }}-pacman-${{ hashFiles('.github/workflows/build.yml') }}-v2
-          restore-keys: |
-            ${{ runner.os }}-pacman-
-
-      - name: Cache ccache (5GB)
-        uses: actions/cache@v4
-        with:
-          path: ./ccache
-          key: ${{ runner.os }}-ccache-5gb-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-ccache-5gb-
-
-      - name: Cache CachyOS repo
-        uses: actions/cache@v4
-        with:
-          path: ./cachyos-repo.tar.xz
-          key: ${{ runner.os }}-cachyos-repo-${{ hashFiles('.github/workflows/build.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-cachyos-repo-
 
       - name: Set up Arch Linux in Docker
         run: |
           docker pull archlinux:latest
-          mkdir -p ./pacman-cache ./ccache
           docker run -d --name archiso-builder \
             --privileged \
             -v ${{ github.workspace }}:/workspace \
-            -v ${{ github.workspace }}/pacman-cache:/var/cache/pacman/pkg \
-            -v ${{ github.workspace }}/ccache:/root/.ccache \
             -w /workspace \
-            -e DEBIAN_FRONTEND=noninteractive \
             archlinux:latest \
             tail -f /dev/null
 
       - name: Build ISO in Container
         run: |
-          docker exec archiso-builder bash <<'EOFSCRIPT'
-          set -e
-          
-          # Disable interactive prompts completely
-          export DEBIAN_FRONTEND=noninteractive
-          
-          # Configure pacman to never ask for confirmation
-          sed -i "s/#Color/Color/" /etc/pacman.conf
-          echo "NoProgressBar" >> /etc/pacman.conf
-          
-          echo "=== Checking Available Space ==="
-          df -h
-          
-          echo "=== Initializing Pacman Keys ==="
-          pacman-key --init
-          pacman-key --populate archlinux
-          
-          echo "=== Setting up CachyOS Repository ==="
-          if [ ! -f "cachyos-repo.tar.xz" ]; then
-            echo "Downloading CachyOS repo (not cached)..."
-            pacman -Sy --noconfirm --needed wget
+          docker exec archiso-builder bash -c '
+            # Initialize keys
+            pacman-key --init
+            pacman-key --populate archlinux
+            
+            # Setup CachyOS
+            pacman -Sy --noconfirm wget
             wget https://mirror.cachyos.org/cachyos-repo.tar.xz
-          else
-            echo "Using cached CachyOS repo..."
-            pacman -Sy --noconfirm --needed wget
-          fi
-          
-          tar xvf cachyos-repo.tar.xz
-          cd cachyos-repo
-          
-          # Run the CachyOS repo setup script non-interactively
-          yes | ./cachyos-repo.sh || ./cachyos-repo.sh --noconfirm || true
-          cd ..
-          
-          echo "=== Updating System (this may take a while) ==="
-          # Use yes to pipe confirmations, but with timeout as backup
-          yes | timeout 600 pacman -Syu --noconfirm --needed || pacman -Syu --noconfirm --needed
-          
-          echo "=== Installing Dependencies ==="
-          pacman -S --noconfirm --needed \
-            base-devel \
-            archiso \
-            mkinitcpio-archiso \
-            git \
-            squashfs-tools \
-            grub \
-            efibootmgr \
-            libisoburn \
-            dosfstools \
-            mtools \
-            patch \
-            sudo \
-            ccache
-          
-          echo "=== Configuring ccache (5GB) ==="
-          export PATH="/usr/lib/ccache/bin:$PATH"
-          export CCACHE_DIR=/root/.ccache
-          export CCACHE_MAXSIZE=5G
-          export CCACHE_COMPRESS=1
-          export CCACHE_COMPRESSLEVEL=6
-          ccache -M 5G
-          ccache -o max_size=5G
-          ccache -o compression=true
-          ccache -o compression_level=6
-          
-          echo "=== ccache Configuration ==="
-          ccache -p
-          echo ""
-          echo "=== ccache Statistics (before build) ==="
-          ccache -s
-          
-          echo "=== Preparing Build Script ==="
-          chmod +x ./buildiso.sh
-          if [ -f "./fix_permissions.sh" ]; then
-            chmod +x ./fix_permissions.sh
-            ./fix_permissions.sh
-          fi
-          
-          echo "=== Building ISO ==="
-          echo "Start time: $(date)"
-          ./buildiso.sh -p desktop -v -w
-          echo "End time: $(date)"
-          
-          echo "=== Build Complete ==="
-          echo "=== ccache Statistics (after build) ==="
-          ccache -s
-          echo ""
-          echo "=== ccache Hit Rate ==="
-          ccache -s | grep "cache hit rate" || true
-          echo ""
-          echo "=== Disk Usage ==="
-          du -sh /root/.ccache 2>/dev/null || true
-          df -h
-          echo ""
-          echo "=== Output Directory ==="
-          ls -lah out/ || echo "No out directory found!"
-          EOFSCRIPT
+            tar xvf cachyos-repo.tar.xz
+            cd cachyos-repo
+            ./cachyos-repo.sh
+            cd ..
+            
+            # Install dependencies
+            pacman -Syu --noconfirm
+            pacman -S --noconfirm --needed \
+              base-devel archiso mkinitcpio-archiso git \
+              squashfs-tools grub efibootmgr libisoburn \
+              dosfstools mtools patch sudo
+            
+            # Build
+            chmod +x ./buildiso.sh
+            ./buildiso.sh -p desktop -v -w
+          '
 
       - name: Copy ISO from Container
         run: |
-          echo "=== Copying ISO from container ==="
-          sudo docker cp archiso-builder:/workspace/out/. ./out/
-          sudo chown -R $(id -u):$(id -g) ./out
-
-      - name: List built files
-        run: |
-          echo "=== Contents of out directory ==="
-          ls -lah ./out/
-          echo ""
-          echo "=== ISO files ==="
-          find ./out -name "*.iso" -exec ls -lh {} \;
-          echo ""
-          echo "=== Total size of ISO files ==="
-          find ./out -name "*.iso" -exec du -ch {} + | tail -1
-
-      - name: Show Cache Statistics
-        if: always()
-        run: |
-          echo "=== Cache Sizes ==="
-          echo "Pacman cache:"
-          du -sh ./pacman-cache 2>/dev/null || echo "No pacman cache"
-          echo "ccache:"
-          du -sh ./ccache 2>/dev/null || echo "No ccache"
-          echo ""
-          echo "=== Disk Usage ==="
-          df -h
-
-      - name: Cleanup Container
-        if: always()
-        run: |
-          docker stop archiso-builder || true
-          docker rm archiso-builder || true
-
+          sudo docker cp archiso-builder:/workspace/out ./
+          sudo chown -R $USER:$USER ./out
+        
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -214,14 +71,3 @@ jobs:
           path: out/**/*.iso
           if-no-files-found: error
           retention-days: 7
-
-      - name: Upload Build Logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            out/**/*.log
-            out/**/work/**/*.log
-          if-no-files-found: ignore
-          retention-days: 3
