@@ -41,5 +41,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: CachyOS-ISO
-          path: out/*.iso
+          path: out/**/*.iso
           if-no-files-found: error
