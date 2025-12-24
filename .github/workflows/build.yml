@@ -27,8 +27,20 @@ jobs:
 
       - name: Install Dependencies
         run: |
+          # 1. Initialize standard Arch keys
           pacman-key --init
           pacman-key --populate archlinux
+
+          # 2. Setup CachyOS Keyring and Repositories
+          # This allows the container to trust CachyOS packages
+          pacman -Sy --noconfirm wget
+          wget https://mirror.cachyos.org/cachyos-repo.tar.xz
+          tar xvf cachyos-repo.tar.xz
+          cd cachyos-repo
+          ./cachyos-repo.sh
+          cd ..
+
+          # 3. Update system and install build tools
           pacman -Syu --noconfirm
           pacman -S --noconfirm --needed \
             base-devel \
