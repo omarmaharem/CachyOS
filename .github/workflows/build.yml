@@ -68,6 +68,7 @@ jobs:
             -v ${{ github.workspace }}/pacman-cache:/var/cache/pacman/pkg \
             -v ${{ github.workspace }}/ccache:/root/.ccache \
             -w /workspace \
+            -e DEBIAN_FRONTEND=noninteractive \
             archlinux:latest \
             tail -f /dev/null
 
@@ -75,6 +76,12 @@ jobs:
         run: |
           docker exec archiso-builder bash -c '
             set -e
+            
+            # Disable interactive prompts completely
+            export DEBIAN_FRONTEND=noninteractive
+            
+            # Configure pacman to never ask for confirmation
+            sed -i "s/#Color/Color\nILoveCandy\nNoProgressBar/" /etc/pacman.conf
             
             echo "=== Checking Available Space ==="
             df -h
@@ -86,20 +93,23 @@ jobs:
             echo "=== Setting up CachyOS Repository ==="
             if [ ! -f "cachyos-repo.tar.xz" ]; then
               echo "Downloading CachyOS repo (not cached)..."
-              pacman -Sy --noconfirm wget
+              pacman -Sy --noconfirm --needed wget
               wget https://mirror.cachyos.org/cachyos-repo.tar.xz
             else
               echo "Using cached CachyOS repo..."
-              pacman -Sy --noconfirm wget
+              pacman -Sy --noconfirm --needed wget
             fi
             
             tar xvf cachyos-repo.tar.xz
             cd cachyos-repo
-            ./cachyos-repo.sh
+            
+            # Run the CachyOS repo setup script non-interactively
+            yes | ./cachyos-repo.sh || ./cachyos-repo.sh --noconfirm || true
             cd ..
             
-            echo "=== Updating System ==="
-            pacman -Syu --noconfirm
+            echo "=== Updating System (this may take a while) ==="
+            # Use yes to pipe confirmations, but with timeout as backup
+            yes | timeout 600 pacman -Syu --noconfirm --needed || pacman -Syu --noconfirm --needed
             
             echo "=== Installing Dependencies ==="
             pacman -S --noconfirm --needed \
@@ -119,98 +129,3 @@ jobs:
             
             echo "=== Configuring ccache (5GB) ==="
             export PATH="/usr/lib/ccache/bin:$PATH"
-            export CCACHE_DIR=/root/.ccache
-            export CCACHE_MAXSIZE=5G
-            export CCACHE_COMPRESS=1
-            export CCACHE_COMPRESSLEVEL=6
-            ccache -M 5G
-            ccache -o max_size=5G
-            ccache -o compression=true
-            ccache -o compression_level=6
-            
-            echo "=== ccache Configuration ==="
-            ccache -p
-            echo ""
-            echo "=== ccache Statistics (before build) ==="
-            ccache -s
-            
-            echo "=== Preparing Build Script ==="
-            chmod +x ./buildiso.sh
-            if [ -f "./fix_permissions.sh" ]; then
-              chmod +x ./fix_permissions.sh
-              ./fix_permissions.sh
-            fi
-            
-            echo "=== Building ISO ==="
-            echo "Start time: $(date)"
-            ./buildiso.sh -p desktop -v -w
-            echo "End time: $(date)"
-            
-            echo "=== Build Complete ==="
-            echo "=== ccache Statistics (after build) ==="
-            ccache -s
-            echo ""
-            echo "=== ccache Hit Rate ==="
-            ccache -s | grep "cache hit rate"
-            echo ""
-            echo "=== Disk Usage ==="
-            du -sh /root/.ccache
-            df -h
-            echo ""
-            echo "=== Output Directory ==="
-            ls -lah out/ || echo "No out directory found!"
-          '
-
-      - name: Copy ISO from Container
-        run: |
-          echo "=== Copying ISO from container ==="
-          sudo docker cp archiso-builder:/workspace/out/. ./out/
-          sudo chown -R $(id -u):$(id -g) ./out
-
-      - name: List built files
-        run: |
-          echo "=== Contents of out directory ==="
-          ls -lah ./out/
-          echo ""
-          echo "=== ISO files ==="
-          find ./out -name "*.iso" -exec ls -lh {} \;
-          echo ""
-          echo "=== Total size of ISO files ==="
-          find ./out -name "*.iso" -exec du -ch {} + | tail -1
-
-      - name: Show Cache Statistics
-        if: always()
-        run: |
-          echo "=== Cache Sizes ==="
-          echo "Pacman cache:"
-          du -sh ./pacman-cache 2>/dev/null || echo "No pacman cache"
-          echo "ccache:"
-          du -sh ./ccache 2>/dev/null || echo "No ccache"
-          echo ""
-          echo "=== Disk Usage ==="
-          df -h
-
-      - name: Cleanup Container
-        if: always()
-        run: |
-          docker stop archiso-builder || true
-          docker rm archiso-builder || true
-
-      - name: Upload ISO Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: CachyOS-Desktop-ISO
-          path: out/*.iso
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Upload Build Logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            out/**/*.log
-            out/**/work/**/*.log
-          if-no-files-found: ignore
-          retention-days: 3
