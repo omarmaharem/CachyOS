@@ -8,9 +8,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # The container must be at the job level
     container:
       image: archlinux:latest
-      options: --privileged # Required for mounting and mkarchiso operations
+      options: --privileged
 
     steps:
       - name: Checkout code
@@ -18,7 +19,6 @@ jobs:
 
       - name: Maximize Build Space
         run: |
-          # Remove heavy pre-installed software to free up ~30GB
           rm -rf /usr/share/dotnet
           rm -rf /usr/local/lib/android
           rm -rf /opt/ghc
@@ -27,11 +27,8 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # Initialize Arch Keyring
           pacman-key --init
           pacman-key --populate archlinux
-          
-          # Update system and install required tools
           pacman -Syu --noconfirm
           pacman -S --noconfirm --needed \
             base-devel \
@@ -49,7 +46,6 @@ jobs:
 
       - name: Prepare Permissions
         run: |
-          # Ensure scripts are executable
           chmod +x ./buildiso.sh
           if [ -f "./fix_permissions.sh" ]; then
             chmod +x ./fix_permissions.sh
@@ -58,24 +54,12 @@ jobs:
 
       - name: Build ISO
         run: |
-          # -p desktop: Builds the default desktop profile
-          # -v: Verbose output so we can see progress in logs
-          # -w: Wipe build directory after completion to save space
           ./buildiso.sh -p desktop -v -w
 
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
         with:
           name: CachyOS-Desktop-ISO
-          # Uses recursive globbing to find the ISO regardless of exact name/folder
           path: out/**/*.iso
           if-no-files-found: error
-          retention-days: 7          # -v: verbose logging
-          ./buildiso.sh -p desktop -v -w
-
-      - name: Upload ISO Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: CachyOS-ISO
-          path: out/**/*.iso
-          if-no-files-found: error
+          retention-days: 7
