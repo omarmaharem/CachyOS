@@ -3,38 +3,74 @@ name: Build CachyOS ISO
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
-      options: --privileged # Required for mkarchiso/mount operations
-    
+      options: --privileged # Required for mounting and mkarchiso operations
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Maximize Build Space
         run: |
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed base-devel archiso mkinitcpio-archiso git squashfs-tools sudo
+          # Remove heavy pre-installed software to free up ~30GB
+          rm -rf /usr/share/dotnet
+          rm -rf /usr/local/lib/android
+          rm -rf /opt/ghc
+          rm -rf "/usr/local/share/boost"
+          rm -rf /usr/lib/jvm
 
-      - name: Prepare permissions
+      - name: Install Dependencies
         run: |
-          # CachyOS build scripts often require a 'fix_permissions' step
+          # Initialize Arch Keyring
+          pacman-key --init
+          pacman-key --populate archlinux
+          
+          # Update system and install required tools
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed \
+            base-devel \
+            archiso \
+            mkinitcpio-archiso \
+            git \
+            squashfs-tools \
+            grub \
+            efibootmgr \
+            libisoburn \
+            dosfstools \
+            mtools \
+            patch \
+            sudo
+
+      - name: Prepare Permissions
+        run: |
+          # Ensure scripts are executable
+          chmod +x ./buildiso.sh
           if [ -f "./fix_permissions.sh" ]; then
             chmod +x ./fix_permissions.sh
             ./fix_permissions.sh
           fi
-          chmod +x ./buildiso.sh
 
       - name: Build ISO
         run: |
-          # -p desktop: default profile
-          # -w: remove build directory after finish
-          # -v: verbose logging
+          # -p desktop: Builds the default desktop profile
+          # -v: Verbose output so we can see progress in logs
+          # -w: Wipe build directory after completion to save space
+          ./buildiso.sh -p desktop -v -w
+
+      - name: Upload ISO Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CachyOS-Desktop-ISO
+          # Uses recursive globbing to find the ISO regardless of exact name/folder
+          path: out/**/*.iso
+          if-no-files-found: error
+          retention-days: 7          # -v: verbose logging
           ./buildiso.sh -p desktop -v -w
 
       - name: Upload ISO Artifact
