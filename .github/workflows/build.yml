@@ -8,65 +8,60 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # The container must be at the job level
-    container:
-      image: archlinux:latest
-      options: --privileged
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Maximize Build Space
         run: |
-          rm -rf /usr/share/dotnet
-          rm -rf /usr/local/lib/android
-          rm -rf /opt/ghc
-          rm -rf "/usr/local/share/boost"
-          rm -rf /usr/lib/jvm
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/lib/jvm
+          sudo apt-get clean
 
-      - name: Install Dependencies
+      - name: Set up Arch Linux in Docker
         run: |
-          # 1. Initialize standard Arch keys
-          pacman-key --init
-          pacman-key --populate archlinux
+          docker pull archlinux:latest
+          docker run -d --name archiso-builder \
+            --privileged \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            archlinux:latest \
+            tail -f /dev/null
 
-          # 2. Setup CachyOS Keyring and Repositories
-          # This allows the container to trust CachyOS packages
-          pacman -Sy --noconfirm wget
-          wget https://mirror.cachyos.org/cachyos-repo.tar.xz
-          tar xvf cachyos-repo.tar.xz
-          cd cachyos-repo
-          ./cachyos-repo.sh
-          cd ..
-
-          # 3. Update system and install build tools
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed \
-            base-devel \
-            archiso \
-            mkinitcpio-archiso \
-            git \
-            squashfs-tools \
-            grub \
-            efibootmgr \
-            libisoburn \
-            dosfstools \
-            mtools \
-            patch \
-            sudo
-
-      - name: Prepare Permissions
+      - name: Build ISO in Container
         run: |
-          chmod +x ./buildiso.sh
-          if [ -f "./fix_permissions.sh" ]; then
-            chmod +x ./fix_permissions.sh
-            ./fix_permissions.sh
-          fi
+          docker exec archiso-builder bash -c '
+            # Initialize keys
+            pacman-key --init
+            pacman-key --populate archlinux
+            
+            # Setup CachyOS
+            pacman -Sy --noconfirm wget
+            wget https://mirror.cachyos.org/cachyos-repo.tar.xz
+            tar xvf cachyos-repo.tar.xz
+            cd cachyos-repo
+            ./cachyos-repo.sh
+            cd ..
+            
+            # Install dependencies
+            pacman -Syu --noconfirm
+            pacman -S --noconfirm --needed \
+              base-devel archiso mkinitcpio-archiso git \
+              squashfs-tools grub efibootmgr libisoburn \
+              dosfstools mtools patch sudo
+            
+            # Build
+            chmod +x ./buildiso.sh
+            ./buildiso.sh -p desktop -v -w
+          '
 
-      - name: Build ISO
+      - name: Copy ISO from Container
         run: |
-          ./buildiso.sh -p desktop -v -w
+          docker cp archiso-builder:/workspace/out ./out
 
       - name: Upload ISO Artifact
         uses: actions/upload-artifact@v4
