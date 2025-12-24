@@ -211,7 +211,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: CachyOS-Desktop-ISO
-          path: out/*.iso
+          path: out/**/*.iso
           if-no-files-found: error
           retention-days: 7
 
