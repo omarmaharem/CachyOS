@@ -1,0 +1,11 @@
+[tools]
+node = "lts"
+pnpm = "latest"
+bun = "latest"
+python = "3"
+go = "latest"
+rust = "latest"
+"npm:@google/gemini-cli" = "latest"
+
+[npm]
+package_manager = "bun"

@@ -11,10 +11,10 @@
 case ${TERM} in
     xterm*|rxvt*|Eterm*|aterm|kterm|gnome*|interix|konsole*)
         PROMPT_COMMAND='echo -ne "\033]0;${USER}@${HOSTNAME%%.*}:${PWD/#$HOME/\~}\007"'
-        ;;
+    ;;
     screen*)
         PROMPT_COMMAND='echo -ne "\033_${USER}@${HOSTNAME%%.*}:${PWD/#$HOME/\~}\033\\"'
-        ;;
+    ;;
 esac
 
 alias ls='ls --color=auto'
@@ -42,4 +42,9 @@ shopt -s expand_aliases
 # Enable history appending instead of overwriting.  #139609
 shopt -s histappend
 
-#neofetch
+# Mise
+eval "$(mise activate bash)"
+
+
+# Print system data with fastfetch
+fastfetch
